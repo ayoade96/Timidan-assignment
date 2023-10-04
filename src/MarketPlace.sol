@@ -9,13 +9,14 @@ contract Marketplace is Ownable {
     uint256 public ordersId = 0;
 
     struct Order {
-        address owner;
+        
         address tokenAddress;
         uint256 tokenId;
         uint256 price;
         bytes signature;
         uint256 deadline;
         bool active;
+        address owner;
     }
 
     mapping(uint256 => Order) public orders;
