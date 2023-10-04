@@ -1,17 +1,21 @@
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.1;
 
-contract ValuePacker {
-    function packValues(uint128 value1, uint128 value2) public pure returns (uint256) {
-        // Pack two uint128 values into a single uint256 value
-        return uint256(value1) << 128 | uint256(value2);
+contract Counter {
+    uint256 public number;
+    uint128 public a;
+    uint128 public b;
+
+    function setNumber(uint256 newNumber) public {
+        number = newNumber;
     }
 
-    function unpackValues(uint256 packedValue) public pure returns (uint128, uint128) {
-        // Unpack a uint256 value into two uint128 values
-        uint128 value1 = uint128(packedValue >> 128);
-        uint128 value2 = uint128(packedValue);
+    function increment() public {
+        number++;
+    }
 
-        return (value1, value2);
+    function packValues(uint128 _a, uint128 _b) public {
+        a = _a;
+        b = _b;
     }
 }
