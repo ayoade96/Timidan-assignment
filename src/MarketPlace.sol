@@ -1,116 +1,114 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.10;
+pragma solidity ^0.8.0;
 
+import "openzeppelin-contracts/contracts/token/ERC721/extensions/IERC721Enumerable.sol";
 import "openzeppelin-contracts/contracts/token/ERC721/IERC721.sol";
+import "openzeppelin-contracts/contracts/access/Ownable.sol";
 
-import "openzeppelin-contracts/contracts/security/ReentrancyGuard.sol";
+contract Marketplace is Ownable {
+    uint256 public ordersId = 0;
 
-
-
-contract Marketplace is ReentrancyGuard {
-
-    // Variables
-    uint public itemCount; 
-    bytes SignatureChecker;
-    address public owner;
-      address payable public immutable feeAccount; // the account that receives fees
-    uint public immutable feePercent;
-
-    struct Item {
-        uint itemId;
-        IERC721 nft;
-        uint tokenId;
-        uint price;
-        address payable seller;
-        uint duration;
-        bool isActive;
+    struct Order {
+        address owner;
+        address tokenAddress;
+        uint256 tokenId;
+        uint256 price;
+        bytes signature;
+        uint256 deadline;
+        bool active;
     }
 
-    // itemId -> Item
-    mapping(uint => Item) public items;
+    mapping(uint256 => Order) public orders;
 
-    event Listed(
-        uint itemId,
-        address indexed nft,
-        uint tokenId,
-        uint price,
-        uint duration,
-        address indexed seller,
-        bool isActive
-    );
-    event Bought(
-        uint itemId,
-        address indexed nft,
-        uint tokenId,
-        uint price,
-        address indexed seller,
-        address indexed buyer
-    );
-      
-      constructor(uint _feePercent) {
-          msg.sender == owner;
-         feeAccount = payable(msg.sender);
-        feePercent = _feePercent;
-      }
-    // Make item to offer on the marketplace
-    function listItem(address _nft, uint _tokenId, uint _price, uint _duration) external nonReentrant {
-        require(_price > 0, "Price must be greater than zero");
-        require (_nft != address(0));
-        require(msg.sender != address(0));
-        require(_duration > block.timestamp);
-        // increment itemCount
-        itemCount ++;
-        // transfer nft
-        _nft.transferFrom(msg.sender, address(this), _tokenId);
-        // add new item to items mapping
-        items[itemCount] = Item (
-            itemCount,
-            _nft,
-            _tokenId,
-            _price,
-            _duration,
-            payable(msg.sender),
-            false
+    IERC721Enumerable public NFT;
+
+    constructor() {}
+
+    function createOrder(
+        address _tokenAddress,
+        uint256 _tokenId,
+        uint256 _price,
+        bytes memory _signature,
+        uint256 _deadline
+    ) external {
+        require(_deadline > block.timestamp, "Order deadline has passed");
+        require(
+            _deadline > block.timestamp + 3601,
+            "Order cannot expire less than an hour"
         );
-        // emit Offered event
-        emit Listed(
-            itemCount,
-            address(_nft),
+        require(_price > 0, "Price must be greater than zero");
+
+        bytes32 orderHash = keccak256(
+            abi.encodePacked(
+                _tokenAddress,
+                _tokenId,
+                _price,
+                msg.sender,
+                _deadline
+            )
+        );
+
+        require(
+            recoverSigner(orderHash, _signature) == msg.sender,
+            "Invalid signature"
+        );
+
+        IERC721 token = IERC721(_tokenAddress);
+        require(token.ownerOf(_tokenId) == msg.sender, "Not token owner");
+        require(
+            token.isApprovedForAll(msg.sender, address(this)),
+            "Contract is not approved to use token"
+        );
+
+        orders[ordersId] = Order(
+            msg.sender,
+            _tokenAddress,
             _tokenId,
             _price,
-            _duration,
-            msg.sender,
+            _signature,
+            _deadline,
             true
         );
+        ordersId++;
     }
 
-    function purchaseListed(uint _itemId) external payable nonReentrant {
-        uint _totalPrice = getTotalPrice(_itemId);
-        Item storage item = items[_itemId];
-        require(_itemId > 0 && _itemId <= itemCount, "item doesn't exist");
-        require(msg.value >= _totalPrice, "not enough ether to cover item price and market fee");
-        require(!item.sold, "item already sold");
-        // pay seller and feeAccount
-        item.seller.transfer(item.price);
-        feeAccount.transfer(_totalPrice - item.price);
-        // update item to sold
-        item.sold = true;
-        // transfer nft to buyer
-        item.nft.transferFrom(address(this), msg.sender, item.tokenId);
-        // emit Bought event
-        emit Bought(
-            _itemId,
-            address(item.nft),
-            item.tokenId,
-            item.price,
-            item.seller,
-            msg.sender
-        );
+    function fulfillOrder(
+        address _tokenAddress,
+        uint256 _tokenId
+    ) external payable {
+        Order storage order = orders[_tokenId];
+        require(order.active, "Order is not active");
+        require(msg.value == order.price, "Incorrect payment amount");
+
+        IERC721 token = IERC721(_tokenAddress);
+        address seller = order.owner;
+
+        payable(seller).transfer(msg.value);
+        token.safeTransferFrom(seller, msg.sender, _tokenId);
+
+        order.active = false;
     }
-    function getTotalPrice(uint _itemId) view public returns(uint){
-        return((items[_itemId].price*(100 + feePercent))/100);
+
+    function recoverSigner(
+        bytes32 _message,
+        bytes memory _signature
+    ) internal pure returns (address) {
+        bytes32 r;
+        bytes32 s;
+        uint8 v;
+
+        require(_signature.length == 65, "Invalid signature length");
+
+        assembly {
+            r := mload(add(_signature, 32))
+            s := mload(add(_signature, 64))
+            v := byte(0, mload(add(_signature, 96)))
+        }
+
+        if (v < 27) {
+            v += 27;
+        }
+
+        return ecrecover(_message, v, r, s);
     }
 }
-
-
-
